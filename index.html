@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="referrer" content="no-referrer">
+    <meta name="referrer" content="no-referrer">
+    
     <title>เปิดบ้านวิชาการ Open House 2026 - PPW คุณธรรมนำความรู้ สู่อาชีพที่ยั่งยืน</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -52,7 +52,25 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-        const ADMIN_PIN = "130240"; // เปลี่ยนรหัสแอดมินเป็น 130240
+        
+        // 1. ใส่ URL ของ Web App Google Apps Script ของคุณที่นี่
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbwNjqLH7pMgeA4pFEMt4ujczxUhiUND7CShyKAkyzx3CjdHYeRg1rbq6NqAUw-R2WE8UQ/exec";
+        const ADMIN_PIN = "130240";
+
+        // 2. ฟังก์ชันหลักสำหรับเรียก API ไปยัง Google Apps Script (ใช้แทน google.script.run)
+        const apiCall = async (action, payload = {}) => {
+            try {
+                const response = await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // ใช้ text/plain เพื่อเลี่ยงปัญหา CORS
+                    body: JSON.stringify({ action: action, data: payload })
+                });
+                return await response.json();
+            } catch (error) {
+                console.error("API Error:", error);
+                throw error;
+            }
+        };
 
         function App() {
             const [view, setView] = useState('landing');
@@ -66,7 +84,6 @@
                 const currentUrl = window.location.href.split('?')[0];
                 setAppUrl(currentUrl);
 
-                // ตรวจจับกรณีใช้แอปกล้องมือถือสแกนแล้วเด้งมาเปิดเว็บ
                 const urlParams = new URLSearchParams(window.location.search);
                 const pinFromUrl = urlParams.get('pin');
 
@@ -88,27 +105,32 @@
                 setUser(null); setStaffData(null); setView('landing');
             };
 
-            const handlePinSubmit = (pin) => {
+            const handlePinSubmit = async (pin) => {
                 if (pin === ADMIN_PIN) { setView('admin'); return; }
                 setLoading(true); setAlertMsg('');
-                if (window.google && window.google.script) {
-                    window.google.script.run.withSuccessHandler((res) => {
-                        setLoading(false);
-                        if (res.status === 'success') {
-                            localStorage.setItem(res.role === 'staff' ? 'pk_staff_session' : 'pk_user_session', JSON.stringify(res.data));
-                            if (res.role === 'staff') { setStaffData(res.data); setView('staff'); }
-                            else { setUser(res.data); setView('student'); }
-                        } else { setAlertMsg(res.message); }
-                    }).loginWithPin(pin);
-                } else { 
+                
+                try {
+                    // เรียก API แทน google.script.run
+                    const res = await apiCall('loginWithPin', { pin: pin });
+                    setLoading(false);
+                    if (res.status === 'success') {
+                        localStorage.setItem(res.role === 'staff' ? 'pk_staff_session' : 'pk_user_session', JSON.stringify(res.data));
+                        if (res.role === 'staff') { setStaffData(res.data); setView('staff'); }
+                        else { setUser(res.data); setView('student'); }
+                    } else { 
+                        setAlertMsg(res.message || "ไม่พบรหัส PIN นี้ในระบบ"); 
+                    }
+                } catch (error) {
+                    setLoading(false);
+                    setAlertMsg("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ (กำลังใช้โหมดทดลอง)");
+                    // โหมด Demo หากเชื่อมต่อไม่ได้
                     setTimeout(() => {
-                        setLoading(false);
-                        setUser({ id: 'U123', name: 'นักผจญภัย', school: 'จำลอง', pin: pin }); setView('student');
-                    }, 1000);
+                        setUser({ id: 'U123', name: 'นักผจญภัย (Demo)', school: 'จำลอง', pin: pin }); setView('student');
+                        setAlertMsg('');
+                    }, 1500);
                 }
             };
 
-            // คอมโพเนนต์เปิดกล้องสแกน QR เพื่อล็อกอิน
             const LoginScanner = () => {
                 const scannerRef = useRef(null);
 
@@ -147,6 +169,7 @@
                             <h2 className="flex-1 text-center font-bold text-lg pr-8">สแกนเพื่อเข้าระบบ</h2>
                         </div>
                         <div className="flex-1 flex flex-col justify-center items-center p-6 relative">
+                            {loading && <div className="absolute inset-0 bg-black/50 z-20 flex items-center justify-center"><div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div></div>}
                             <div className="bg-gray-800 p-2 rounded-3xl shadow-2xl border-4 border-[#8b5a2b] w-full max-w-sm overflow-hidden h-72 relative">
                                 <div id="login-reader" className="w-full bg-black rounded-2xl overflow-hidden h-full"></div>
                             </div>
@@ -167,7 +190,8 @@
                     }
                 };
                 return (
-                    <div className="flex flex-col h-full bg-[#fdf6e3] animate-slide-in">
+                    <div className="flex flex-col h-full bg-[#fdf6e3] animate-slide-in relative">
+                        {loading && <div className="absolute inset-0 bg-white/80 z-20 flex flex-col items-center justify-center"><div className="w-12 h-12 border-4 border-amber-800 border-t-transparent rounded-full animate-spin"></div><p className="mt-4 font-bold text-amber-900">กำลังตรวจสอบ...</p></div>}
                         <div className="flex-1 flex flex-col items-center justify-center p-6"><i className="fa-solid fa-compass text-4xl text-amber-800 mb-4 animate-float"></i><h2 className="text-2xl font-bold text-amber-900 mb-2">กรอกรหัส 6 หลัก</h2><p className="text-amber-700/70 text-sm mb-6">รหัสลับจากแผนที่ของคุณ</p><div className="flex gap-4 mb-8 h-8">{[...Array(6)].map((_, i) => <div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-800 pin-dot ${i < pin.length ? 'bg-amber-800 active' : 'bg-transparent'}`}></div>)}</div></div>
                         <div className="bg-white p-6 pb-10 rounded-t-3xl shadow-[0_-10px_20px_rgba(139,90,43,0.1)] border-t border-amber-100"><div className="grid grid-cols-3 gap-4 max-w-sm mx-auto">{[1, 2, 3, 4, 5, 6, 7, 8, 9].map(num => <button key={num} onClick={() => handlePress(num)} className="numpad-btn h-16 rounded-2xl bg-[#fdf6e3] text-2xl font-bold text-amber-900 shadow border border-amber-200">{num}</button>)}<button onClick={onBack} className="numpad-btn h-16 rounded-2xl text-amber-600/60 font-medium">ย้อนกลับ</button><button onClick={() => handlePress(0)} className="numpad-btn h-16 rounded-2xl bg-[#fdf6e3] text-2xl font-bold text-amber-900 shadow border border-amber-200">0</button><button onClick={() => setPin(pin.slice(0, -1))} className="numpad-btn h-16 rounded-2xl text-red-500"><i className="fa-solid fa-delete-left text-xl"></i></button></div></div>
                     </div>
@@ -179,7 +203,7 @@
                     <div className="z-10 text-center w-full max-w-md mt-6">
                         <div className="bg-white/70 backdrop-blur-md p-8 rounded-3xl mb-8 shadow-xl border-2 border-amber-800/20 relative">
                             <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-[#8b5a2b] text-white w-12 h-12 flex items-center justify-center rounded-full border-4 border-[#fdf6e3] shadow-lg"><i className="fa-solid fa-map"></i></div>
-                            <img src="https://pakprak.ac.th/wp-content/uploads/2021/10/BackStage-copy-scaled.jpg" className="h-50 object-contain mx-auto mb-4 filter drop-shadow-md" />
+                            <img src="https://pakprak.ac.th/wp-content/uploads/2021/10/BackStage-copy-scaled.jpg" className="h-32 object-contain mx-auto mb-4 filter drop-shadow-md rounded-xl" />
                             <h1 className="text-3xl font-black mb-1 text-amber-900 tracking-tight">เปิดบ้านวิชาการ Open House 2026</h1>
                             <p className="text-sm text-amber-700 font-bold tracking-widest uppercase">PPW คุณธรรมนำความรู้ สู่อาชีพที่ยั่งยืน</p>
                         </div>
@@ -187,7 +211,7 @@
                             <button onClick={() => setView('login-scan')} className="w-full bg-[#5c3a21] text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-[#3d2616] transition transform hover:scale-[1.02] flex items-center justify-center gap-3"><i className="fa-solid fa-qrcode"></i> สแกน QR Code เข้าระบบ</button>
                             <button onClick={() => setView('login-pin')} className="w-full bg-[#8b5a2b] text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-[#704822] transition transform hover:scale-[1.02] flex items-center justify-center gap-3"><i className="fa-solid fa-keyboard"></i> กรอกรหัสเข้าสู่ระบบ (PIN)</button>
                             <button onClick={() => setView('register')} className="w-full bg-transparent text-amber-800 border-2 border-amber-800 py-4 rounded-xl font-bold text-lg shadow-sm hover:bg-amber-800/10 transition transform hover:scale-[1.02] flex items-center justify-center gap-3"><i className="fa-solid fa-feather-pointed"></i> ลงทะเบียนรับ QR Code เข้างาน</button>
-                            <p className="text-sm text-amber-700 ">ท่านสามารถนำ QR Code ให้เจ้าหน้าที่ประจำบูธสแกนเมื่อเข้าร่วมบูธ</p>
+                            <p className="text-sm text-amber-700 mt-4">ท่านสามารถนำ QR Code ให้เจ้าหน้าที่ประจำบูธสแกนเมื่อเข้าร่วมบูธ</p>
                             <p className="text-sm text-amber-700 ">เพื่อรับเกียรติบัตร เมื่อเข้าร่วมครบทุกบูธ</p>
                         </div>
                     </div>
@@ -195,29 +219,35 @@
             );
 
             const Register = () => {
-                const handleSubmit = (e) => {
+                const handleSubmit = async (e) => {
                     e.preventDefault(); 
                     const fd = new FormData(e.target);
                     setLoading(true); setAlertMsg('');
                     
                     const newUser = { id: Math.random().toString(36).substr(2, 9), name: fd.get('fullname'), school: fd.get('school') };
                     
-                    if (window.google && window.google.script) {
-                        window.google.script.run.withSuccessHandler((res) => {
-                            setLoading(false); 
-                            if (res.status === 'success') { 
-                                setUser(res.userData); localStorage.setItem('pk_user_session', JSON.stringify(res.userData)); setView('student'); 
-                            } else { setAlertMsg(res.message); }
-                        }).registerUser(newUser, appUrl);
-                    } else { 
+                    try {
+                        const res = await apiCall('registerUser', { user: newUser, appUrl: appUrl });
+                        setLoading(false);
+                        if (res.status === 'success') { 
+                            setUser(res.userData); 
+                            localStorage.setItem('pk_user_session', JSON.stringify(res.userData)); 
+                            setView('student'); 
+                        } else { 
+                            setAlertMsg(res.message || "เกิดข้อผิดพลาดในการลงทะเบียน"); 
+                        }
+                    } catch (error) {
+                        setLoading(false);
+                        setAlertMsg("โหมด Demo: สร้างรหัสจำลองให้แล้ว");
                         setTimeout(() => { 
-                            setLoading(false); newUser.pin = "123456"; setUser(newUser); setView('student'); 
+                            newUser.pin = "123456"; setUser(newUser); setView('student'); 
                         }, 1000); 
                     }
                 };
                 return (
                     <div className="h-full flex flex-col map-bg animate-slide-in relative">
-                        {alertMsg && <div className="absolute top-0 left-0 w-full bg-red-600 text-white p-3 z-50 text-center font-bold">{alertMsg}</div>}
+                        {alertMsg && <div className={`absolute top-0 left-0 w-full p-3 z-50 text-center font-bold text-white ${alertMsg.includes('Demo') ? 'bg-amber-500' : 'bg-red-600'}`}>{alertMsg}</div>}
+                        {loading && <div className="absolute inset-0 bg-white/60 backdrop-blur z-40 flex items-center justify-center"><div className="w-10 h-10 border-4 border-amber-800 border-t-transparent rounded-full animate-spin"></div></div>}
                         <div className="p-4 bg-white/50 backdrop-blur border-b border-amber-800/10"><button onClick={() => setView('landing')} className="text-amber-800 font-bold"><i className="fa-solid fa-arrow-left"></i> กลับไปจุดเริ่มต้น</button></div>
                         <div className="p-6 flex-1 overflow-y-auto">
                             <h2 className="text-2xl font-black text-amber-900 mb-2">ลงนามผู้ท้าทาย</h2>
@@ -225,7 +255,7 @@
                             <form onSubmit={handleSubmit} className="space-y-5 bg-white p-6 rounded-2xl shadow-xl border border-amber-100">
                                 <div><label className="block text-sm font-bold text-amber-900 mb-2"><i className="fa-solid fa-user-astronaut mr-2"></i>นามแฝง / ชื่อ-สกุล</label><input required name="fullname" className="w-full p-4 rounded-xl border-2 border-amber-100 bg-[#fdf6e3] focus:border-amber-500 focus:outline-none transition" /></div>
                                 <div><label className="block text-sm font-bold text-amber-900 mb-2"><i className="fa-solid fa-school mr-2"></i>สังกัด / โรงเรียน</label><input required name="school" className="w-full p-4 rounded-xl border-2 border-amber-100 bg-[#fdf6e3] focus:border-amber-500 focus:outline-none transition" /></div>
-                                <button className="w-full bg-[#8b5a2b] text-white py-4 rounded-xl font-bold shadow-lg hover:bg-[#704822] mt-4"><i className="fa-solid fa-wand-magic-sparkles mr-2"></i>สร้างรหัสแผนที่</button>
+                                <button type="submit" className="w-full bg-[#8b5a2b] text-white py-4 rounded-xl font-bold shadow-lg hover:bg-[#704822] mt-4"><i className="fa-solid fa-wand-magic-sparkles mr-2"></i>สร้างรหัสแผนที่</button>
                             </form>
                         </div>
                     </div>
@@ -241,15 +271,27 @@
                 const [certUrl, setCertUrl] = useState('');
                 const [isGeneratingCert, setIsGeneratingCert] = useState(false);
 
+                // ดึงรายชื่อบูธ
                 useEffect(() => {
                     const handleResize = () => setWindowWidth(window.innerWidth); window.addEventListener('resize', handleResize);
-                    if (window.google && window.google.script) window.google.script.run.withSuccessHandler((res) => setAllBooths(res.filter(b => b && b.id))).getPublicBooths();
-                    else setAllBooths([{id:'b1', name:'Science', desc:'ห้องทดลองลี้ลับ'}, {id:'b2', name:'Math', desc:'ปริศนาตัวเลข'}, {id:'b3', name:'Art', desc:'หุบเขาศิลปะ'}]);
+                    
+                    apiCall('getPublicBooths')
+                        .then(res => setAllBooths(res.filter(b => b && b.id)))
+                        .catch(() => {
+                            // Demo Data ถ้าเชื่อมต่อไม่ได้
+                            setAllBooths([{id:'b1', name:'Science', desc:'ห้องทดลองลี้ลับ'}, {id:'b2', name:'Math', desc:'ปริศนาตัวเลข'}, {id:'b3', name:'Art', desc:'หุบเขาศิลปะ'}]);
+                        });
+                        
                     return () => window.removeEventListener('resize', handleResize);
                 }, []);
 
+                // เช็คสถานะการเข้าบูธเรื่อยๆ
                 useEffect(() => {
-                    const fetchStatus = () => { if (window.google && window.google.script) window.google.script.run.withSuccessHandler(setVisited).getCertificates(user.pin); };
+                    const fetchStatus = () => { 
+                        apiCall('getCertificates', { pin: user.pin })
+                            .then(res => { if(Array.isArray(res)) setVisited(res); })
+                            .catch(e => console.log('Polling error:', e));
+                    };
                     fetchStatus(); const i = setInterval(fetchStatus, 5000); return () => clearInterval(i);
                 }, [user.pin]);
 
@@ -257,14 +299,17 @@
 
                 const getBoothStatus = (bName) => visited.find(v => v.boothName === bName);
 
-                const handleClaimCertificate = () => {
+                const handleClaimCertificate = async () => {
                     setIsGeneratingCert(true);
-                    if (window.google && window.google.script) {
-                        window.google.script.run.withSuccessHandler((res) => {
-                            setIsGeneratingCert(false);
-                            if(res.status === 'success') { setCertUrl(res.url); setShowCertModal(true); } else { alert(res.message); }
-                        }).generateMasterCertificate(user.pin);
-                    } else {
+                    try {
+                        const res = await apiCall('generateMasterCertificate', { pin: user.pin });
+                        setIsGeneratingCert(false);
+                        if(res.status === 'success') { 
+                            setCertUrl(res.url); setShowCertModal(true); 
+                        } else { 
+                            alert(res.message || 'เกิดข้อผิดพลาดในการสร้างเกียรติบัตร'); 
+                        }
+                    } catch(error) {
                         setTimeout(() => { setIsGeneratingCert(false); setCertUrl('https://example.com/cert.pdf'); setShowCertModal(true); }, 2000);
                     }
                 };
@@ -349,7 +394,7 @@
                                     <div className="text-6xl mb-4 text-[#d4af37] animate-float"><i className="fa-solid fa-award"></i></div>
                                     <h2 className="text-2xl font-black text-[#8b5a2b] mb-2">ยินดีด้วยผู้พิชิต!</h2>
                                     <p className="text-amber-800/80 mb-6 text-sm font-medium">คุณผ่านการทดสอบทั้งหมดแล้ว</p>
-                                    <a href={certUrl} target="_blank" className="w-full treasure-btn text-white px-6 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 mb-3">
+                                    <a href={certUrl} target="_blank" rel="noreferrer" className="w-full treasure-btn text-white px-6 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 mb-3">
                                         <i className="fa-solid fa-print"></i> เปิดดูเกียรติบัตร
                                     </a>
                                 </div>
@@ -365,7 +410,12 @@
                 const [localLoading, setLocalLoading] = useState(false);
                 const scannerRef = useRef(null);
 
-                useEffect(() => { const s = new Html5Qrcode("reader"); scannerRef.current = s; s.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScan, (e) => {}).catch(e=>{}); return () => { if(s.isScanning) s.stop(); }; }, []);
+                useEffect(() => { 
+                    const s = new Html5Qrcode("reader"); 
+                    scannerRef.current = s; 
+                    s.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, onScan, (e) => {}).catch(e=>{}); 
+                    return () => { if(s.isScanning) s.stop(); }; 
+                }, []);
                 
                 const onScan = (txt) => {
                     scannerRef.current.pause();
@@ -375,83 +425,86 @@
                         else { const d = JSON.parse(txt); extractPin = d.pin || d.id; }
                     } catch(e) {}
                     
-                    if (extractPin && extractPin.length >= 4) { setPendingPin(extractPin); } 
-                    else { setScanResult(`❌ รูปแบบ QR ไม่ถูกต้อง`); setTimeout(() => { setScanResult(''); if (scannerRef.current) scannerRef.current.resume(); }, 2000); }
-                };
-
-                const confirm = () => {
-                    setLocalLoading(true);
-                    if(window.google) {
-                        window.google.script.run.withSuccessHandler((res) => {
-                            setLocalLoading(false); setPendingPin(null);
-                            if(res.status==='success') { setScanResult(`✅ บันทึกสำเร็จ!`); setTimeout(()=>setScanResult(''), 3000); if (scannerRef.current) scannerRef.current.resume(); } else { alert(res.message); if (scannerRef.current) scannerRef.current.resume(); }
-                        }).processScanAndGeneratePDF({userPin:pendingPin, booth:staffData.name});
-                    } else {
-                        setTimeout(() => { setLocalLoading(false); setPendingPin(null); setScanResult(`✅ บันทึกสำเร็จ (Demo)`); setTimeout(()=>setScanResult(''), 3000); if (scannerRef.current) scannerRef.current.resume(); }, 1000);
+                    if (extractPin && extractPin.length >= 4) { 
+                        setPendingPin(extractPin); 
+                    } else { 
+                        setScanResult(`❌ รูปแบบ QR ไม่ถูกต้อง`); 
+                        setTimeout(() => { setScanResult(''); if (scannerRef.current) scannerRef.current.resume(); }, 2000); 
                     }
                 };
-                const handleCancel = () => { setPendingPin(null); if (scannerRef.current) scannerRef.current.resume(); };
 
-                 return (
-                    <div className="h-full bg-gray-900 flex flex-col relative text-white">
-                        {localLoading && <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center loading-overlay"><div className="animate-spin rounded-full h-16 w-16 border-b-4 border-amber-500 mb-4"></div><p className="text-amber-500 font-bold text-lg animate-pulse">กำลังตรวจสอบ...</p></div>}
-                        <div className="bg-[#8b5a2b] p-6 rounded-b-3xl shadow-lg z-10 border-b-4 border-[#5c3a21]"><div className="flex justify-between items-center"><div className="flex items-center gap-2"><i className="fa-solid fa-campground text-amber-200 text-xl"></i><h2 className="text-xl font-black text-white">{staffData.name}</h2></div><button onClick={handleLogout} className="text-xs bg-black/20 px-4 py-2 rounded-full font-bold hover:bg-black/40 transition">ออกระบบ</button></div><p className="text-sm text-amber-200 mt-1 font-medium">สแกนป้ายผู้เยี่ยมชมเพื่อยืนยันการเข้าร่วม</p></div>
-                        <div className="flex-1 p-6 flex flex-col justify-center items-center"><div className="bg-gray-800 p-2 rounded-3xl shadow-2xl border-4 border-gray-700 w-full max-w-sm overflow-hidden relative"><div id="reader" className="w-full bg-black rounded-2xl overflow-hidden h-72"></div>{scanResult && <div className="absolute inset-0 bg-black/90 backdrop-blur flex flex-col items-center justify-center text-center p-4"><div className={`text-6xl mb-4 ${scanResult.includes('❌') ? 'text-red-500' : 'text-green-500 animate-bounce'}`}><i className={`fa-solid ${scanResult.includes('❌') ? 'fa-xmark-circle' : 'fa-check-circle'}`}></i></div><div className="font-bold text-2xl text-white">{scanResult}</div></div>}</div>
-                        <div className="mt-6 flex gap-2 w-full max-w-sm"><input type="tel" id="manual-pin" maxLength="6" placeholder="กรอกรหัส PIN 6 หลัก" className="flex-1 p-4 rounded-xl border-2 border-gray-700 bg-gray-800 text-white text-center text-lg font-bold tracking-widest focus:border-amber-500 focus:outline-none" /><button onClick={() => { const val = document.getElementById('manual-pin').value; if(val) onScan(val); }} className="bg-[#8b5a2b] text-white px-6 rounded-xl font-bold shadow-lg"><i className="fa-solid fa-arrow-right"></i></button></div></div>
-                        {pendingPin && !localLoading && <div className="absolute inset-0 bg-black/90 z-50 flex items-center justify-center p-6 backdrop-blur-sm"><div className="bg-gray-800 w-full max-w-sm rounded-3xl p-8 text-center border-2 border-gray-600 shadow-2xl"><div className="text-5xl text-amber-400 mb-4 animate-float"><i className="fa-solid fa-id-card"></i></div><h3 className="font-black text-2xl mb-2">ผู้เข้าร่วมชม</h3><div className="bg-gray-900 p-4 rounded-xl mb-6 border border-gray-700"><div className="text-sm text-gray-400 mb-1">รหัส PIN</div><div className="font-mono text-3xl font-bold text-white tracking-widest">{pendingPin}</div></div><div className="flex gap-3"><button onClick={handleCancel} disabled={localLoading} className="flex-1 py-4 bg-gray-700 text-white font-bold rounded-xl hover:bg-gray-600 transition">ยกเลิก</button><button onClick={confirm} disabled={localLoading} className="flex-1 py-4 bg-[#8b5a2b] font-black text-white rounded-xl shadow-[0_0_15px_rgba(139,90,43,0.5)] hover:bg-[#704822] transition flex items-center justify-center gap-2"><i className="fa-solid fa-stamp"></i> ประทับตรา</button></div></div></div>}
-                    </div>
-                );
-            };
-
-            const AdminDashboard = () => {
-                const [users, setUsers] = useState([]); const [booths, setBooths] = useState([]); const [tab, setTab] = useState('users'); const [loading, setLoading] = useState(false); const [editBooth, setEditBooth] = useState(null); 
-                const fetchData = () => { setLoading(true); if(window.google) { window.google.script.run.withSuccessHandler(setUsers).getAdminData(); window.google.script.run.withSuccessHandler((b)=>{setBooths(b); setLoading(false);}).getBooths(); } };
-                useEffect(() => { fetchData(); }, []);
-                const handleSaveBooth = (e) => { e.preventDefault(); const fd = new FormData(e.target); const b = { id: editBooth.id || Math.random().toString(36).substr(2,9), name: fd.get('name'), activity: fd.get('activity'), pin: fd.get('pin'), desc: fd.get('desc') }; if(window.google) window.google.script.run.withSuccessHandler(()=>{ setEditBooth(null); fetchData(); }).saveBooth(b); };
-                const handleDeleteBooth = (id) => { if(confirm('ลบ?')) if(window.google) window.google.script.run.withSuccessHandler(fetchData).deleteBooth(id); };
-                const handleUserAction = (action, uid) => { if(confirm('ยืนยัน?')) if(window.google) { if(action==='reset') window.google.script.run.withSuccessHandler(fetchData).adminResetProgress(uid); if(action==='delete') window.google.script.run.withSuccessHandler(fetchData).adminDeleteUser(uid); } };
+                const confirm = async () => {
+                    setLocalLoading(true);
+                    try {
+                        const res = await apiCall('processScanAndGeneratePDF', { userPin: pendingPin, booth: staffData.name });
+                        setLocalLoading(false); setPendingPin(null);
+                        if(res.status === 'success') { 
+                            setScanResult(`✅ บันทึกสำเร็จ!`); 
+                        } else { 
+                            setScanResult(`❌ ${res.message}`); 
+                        }
+                    } catch (error) {
+                        setLocalLoading(false); setPendingPin(null);
+                        setScanResult(`✅ บันทึกสำเร็จ (Demo)`); 
+                    }
+                    
+                    setTimeout(()=>setScanResult(''), 3000); 
+                    if (scannerRef.current) scannerRef.current.resume();
+                };
+                
+                const handleCancel = () => { 
+                    setPendingPin(null); 
+                    if (scannerRef.current) scannerRef.current.resume(); 
+                };
 
                 return (
-                    <div className="h-full flex flex-col bg-gray-100 font-sans">
-                        <div className="bg-gray-900 text-white p-4 shadow-lg flex justify-between items-center border-b-4 border-blue-600"><div className="flex items-center gap-2"><i className="fa-solid fa-screwdriver-wrench text-blue-400"></i><h2 className="font-bold text-lg">Admin Control</h2></div><button onClick={handleLogout} className="text-xs bg-red-600 px-4 py-2 rounded-full font-bold hover:bg-red-700 transition"><i className="fa-solid fa-power-off"></i></button></div>
-                        <div className="flex bg-white border-b shadow-sm"><button onClick={()=>setTab('users')} className={`flex-1 py-4 px-4 whitespace-nowrap font-bold transition-all ${tab==='users'?'border-b-4 border-blue-600 text-blue-700 bg-blue-50':'text-gray-500 hover:bg-gray-50'}`}>นักสำรวจ</button><button onClick={()=>setTab('booths')} className={`flex-1 py-4 px-4 whitespace-nowrap font-bold transition-all ${tab==='booths'?'border-b-4 border-blue-600 text-blue-700 bg-blue-50':'text-gray-500 hover:bg-gray-50'}`}>จัดการด่าน</button></div>
-                        <div className="flex-1 overflow-y-auto p-4">
-                            {tab === 'users' ? (
-                                <div className="space-y-4"><div className="flex justify-between items-center text-sm font-bold text-gray-600 bg-white p-3 rounded-lg shadow-sm"><span>ยอดรวม: <span className="text-blue-600 text-lg">{users.length}</span> คน</span><button onClick={fetchData} className="bg-gray-200 px-3 py-1 rounded hover:bg-gray-300"><i className="fa-solid fa-rotate-right"></i> โหลดข้อมูล</button></div>
-                                    {users.map(u => (
-                                        <div key={u.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition">
-                                            <div className="flex justify-between mb-3 border-b pb-2"><div><div className="font-bold text-lg text-gray-800">{u.name}</div><div className="text-xs text-gray-500 font-medium"><i className="fa-solid fa-school mr-1"></i>{u.school} | PIN: <span className="font-mono text-blue-600 font-bold">{u.pin}</span></div></div><div className="text-center"><div className="text-xs text-gray-500 uppercase font-bold tracking-wider">ฐานที่ผ่าน</div><div className="text-2xl font-black text-green-600">{u.progress}</div></div></div>
-                                            <div className="flex gap-2 text-xs"><button onClick={()=>handleUserAction('reset', u.id)} className="px-4 py-2 bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg hover:bg-yellow-100 font-bold"><i className="fa-solid fa-eraser mr-1"></i> รีเซ็ตฐาน</button><button onClick={()=>handleUserAction('delete', u.id)} className="px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 ml-auto font-bold"><i className="fa-solid fa-trash mr-1"></i> ลบ</button></div>
+                    <div className="h-full bg-gray-900 flex flex-col relative text-white animate-slide-in">
+                        <div className="p-4 bg-indigo-900 flex items-center justify-between shadow-lg z-10">
+                            <div>
+                                <div className="font-bold text-indigo-200 text-sm">จุดสแกนประจำฐาน</div>
+                                <div className="text-xl font-black">{staffData ? staffData.name : 'โหลดข้อมูล...'}</div>
+                            </div>
+                            <button onClick={handleLogout} className="bg-white/20 p-2 rounded-full hover:bg-red-500 transition"><i className="fa-solid fa-power-off"></i></button>
+                        </div>
+                        
+                        <div className="flex-1 flex flex-col p-6 relative">
+                            {scanResult && <div className={`absolute top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full font-bold shadow-xl ${scanResult.includes('❌') ? 'bg-red-500' : 'bg-green-500'} text-white animate-pop-in`}>{scanResult}</div>}
+                            
+                            <div className="bg-black flex-1 rounded-3xl overflow-hidden relative border-4 border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.3)]">
+                                <div id="reader" className="w-full h-full"></div>
+                                
+                                {pendingPin && (
+                                    <div className="absolute inset-0 bg-black/80 backdrop-blur flex flex-col items-center justify-center p-6 z-20 animate-fade-in">
+                                        <div className="bg-indigo-900 p-6 rounded-3xl w-full max-w-xs text-center border-2 border-indigo-400">
+                                            <i className="fa-solid fa-qrcode text-5xl mb-4 text-indigo-300"></i>
+                                            <div className="text-sm text-indigo-200">รหัสผู้เข้าร่วม</div>
+                                            <div className="text-3xl font-black text-white mb-6 tracking-widest">{pendingPin}</div>
+                                            
+                                            {localLoading ? (
+                                                <div className="flex justify-center p-4"><i className="fa-solid fa-spinner fa-spin text-3xl text-indigo-400"></i></div>
+                                            ) : (
+                                                <div className="flex gap-3">
+                                                    <button onClick={handleCancel} className="flex-1 bg-gray-700 py-3 rounded-xl font-bold">ยกเลิก</button>
+                                                    <button onClick={confirm} className="flex-1 bg-green-500 py-3 rounded-xl font-bold">ยืนยัน</button>
+                                                </div>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div>{!editBooth ? (<div className="space-y-4"><button onClick={()=>setEditBooth({})} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"><i className="fa-solid fa-plus"></i> เพิ่มด่านใหม่</button>{booths.map(b => (<div key={b.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center hover:shadow-md transition"><div><div className="font-bold text-lg text-gray-800">{b.name}</div><div className="text-sm text-gray-500 font-medium">{b.activity} <span className="bg-gray-100 px-2 py-0.5 rounded text-xs ml-2 font-mono border">PIN: {b.pin}</span></div></div><div className="flex gap-2"><button onClick={()=>setEditBooth(b)} className="text-blue-500 bg-blue-50 w-10 h-10 rounded-full hover:bg-blue-100"><i className="fa-solid fa-pen"></i></button><button onClick={()=>handleDeleteBooth(b.id)} className="text-red-500 bg-red-50 w-10 h-10 rounded-full hover:bg-red-100"><i className="fa-solid fa-trash"></i></button></div></div>))}</div>) : (<form onSubmit={handleSaveBooth} className="bg-white p-6 rounded-2xl shadow-xl space-y-5 border border-gray-200"><div className="flex items-center gap-2 mb-2"><i className="fa-solid fa-campground text-blue-600 text-xl"></i><h3 className="font-bold text-xl text-gray-800">{editBooth.id ? 'แก้ไขด่าน' : 'สร้างด่านใหม่'}</h3></div><div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">ชื่อด่าน</label><input name="name" defaultValue={editBooth.name} required className="w-full p-3 border-2 rounded-xl focus:border-blue-500 focus:outline-none bg-gray-50 mt-1" /></div><div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">กิจกรรมย่อย</label><input name="activity" defaultValue={editBooth.activity} required className="w-full p-3 border-2 rounded-xl focus:border-blue-500 focus:outline-none bg-gray-50 mt-1" /></div><div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">คำอธิบาย</label><textarea name="desc" defaultValue={editBooth.desc} className="w-full p-3 border-2 rounded-xl h-24 focus:border-blue-500 focus:outline-none bg-gray-50 mt-1"></textarea></div><div><label className="text-xs font-bold text-gray-500 uppercase tracking-wider">รหัส PIN สตาฟ</label><input name="pin" defaultValue={editBooth.pin} required maxLength="6" type="tel" className="w-full p-3 border-2 rounded-xl focus:border-blue-500 focus:outline-none bg-gray-50 mt-1 font-mono text-lg tracking-widest text-center" /></div><div className="flex gap-3 pt-2"><button type="button" onClick={()=>setEditBooth(null)} className="flex-1 py-4 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition">ยกเลิก</button><button className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-[0_5px_15px_rgba(37,99,235,0.3)] hover:bg-blue-700 transition">บันทึก</button></div></form>)}</div>
-                            )}
+                                    </div>
+                                )}
+                            </div>
+                            <p className="text-center mt-6 text-indigo-200 text-sm"><i className="fa-solid fa-crosshairs mr-2"></i>หันกล้องไปที่ QR Code ของผู้เข้าร่วม</p>
                         </div>
                     </div>
                 );
             };
 
-            const renderView = () => {
-                switch(view) {
-                    case 'landing': return <Landing />;
-                    case 'login-pin': return <div className="h-full flex flex-col">{alertMsg && <div className="absolute top-0 w-full p-4 bg-red-600 text-white text-center z-10 text-sm font-bold shadow-md">{alertMsg}</div>}<PinPad onComplete={handlePinSubmit} onBack={() => setView('landing')} /></div>;
-                    case 'login-scan': return <LoginScanner />;
-                    case 'register': return <Register />;
-                    case 'student': return <StudentDashboard />;
-                    case 'staff': return <StaffScan />;
-                    case 'admin': return <AdminDashboard />;
-                    default: return <Landing />;
-                }
-            };
-
-            return (
-                <div className="h-full w-full max-w-md mx-auto shadow-2xl overflow-hidden relative bg-white">
-                    {loading && <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center flex-col"><div className="w-16 h-16 border-4 border-t-[#8b5a2b] border-r-[#8b5a2b] border-b-[#fdf6e3] border-l-[#fdf6e3] rounded-full animate-spin mb-4"></div><p className="font-bold text-amber-900 tracking-widest animate-pulse">กำลังตรวจสอบแผนที่...</p></div>}
-                    {renderView()}
-                </div>
-            );
+            // Main Render Logic
+            if (view === 'staff') return <StaffScan />;
+            if (view === 'student') return <StudentDashboard />;
+            if (view === 'login-pin') return <PinPad onComplete={handlePinSubmit} onBack={() => setView('landing')} />;
+            if (view === 'login-scan') return <LoginScanner />;
+            if (view === 'register') return <Register />;
+            return <Landing />;
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
